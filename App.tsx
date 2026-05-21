@@ -15,7 +15,8 @@ import { fetchCampaigns, upsertCampaign, deleteCampaign as dbDeleteCampaign, set
 import { fetchCustomersWithCards } from './lib/db/customers';
 import { fetchPublicScanEntryContext } from './lib/db/issuedCards';
 import { buildIssuedCardsKioskUrl, buildStaffPortalUrl, buildStaffScanEntryUrl } from './lib/links';
-import { isSupabaseConfigured, supabase } from './lib/supabase';
+import { isApiConfigured } from './lib/api';
+import { fetchPublicCard } from './lib/db/publicSignup';
 import { useSubscription } from './lib/useSubscription';
 import { SubscriptionProvider } from './components/SubscriptionContext';
 import { APP_ORIGIN } from './lib/siteConfig';
@@ -177,13 +178,11 @@ const PublicCardWrapper: React.FC = () => {
   } | null>(null);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !slug || !uniqueId) { setLoading(false); return; }
+    if (!isApiConfigured || !slug || !uniqueId) { setLoading(false); return; }
     (async () => {
-      const { data, error } = await supabase.rpc('get_public_card', {
-        slug_input: slug,
-        card_unique_id: uniqueId,
-      });
-      if (error || !data) { setLoading(false); return; }
+      const raw = await fetchPublicCard(slug, uniqueId);
+      if (!raw) { setLoading(false); return; }
+      const data = raw as any;
 
       const card: IssuedCard = {
         id: data.card.id,
@@ -245,7 +244,7 @@ const PublicCardWrapper: React.FC = () => {
   if (!cardData) {
     return (
       <div className="h-screen flex items-center justify-center px-6 text-center text-muted-foreground">
-        {isSupabaseConfigured ? 'Card not found.' : SERVICE_UNAVAILABLE_MESSAGE}
+        {isApiConfigured ? 'Card not found.' : SERVICE_UNAVAILABLE_MESSAGE}
       </div>
     );
   }
@@ -629,7 +628,7 @@ const AppRoutes: React.FC = () => {
 
   return (
     <SubscriptionProvider value={sub}>
-      {!isSupabaseConfigured && (
+      {!isApiConfigured && (
         <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           {SERVICE_UNAVAILABLE_MESSAGE}
         </div>

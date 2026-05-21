@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { api, ApiError } from '../api';
 import type { StoredTemplate } from '../../types';
 
 interface CampaignRow {
@@ -40,10 +40,9 @@ export function rowToStoredTemplate(row: CampaignRow): StoredTemplate {
   };
 }
 
-function templateToRow(t: StoredTemplate, ownerId: string) {
+function templateToRow(t: StoredTemplate) {
   return {
     id: t.id,
-    owner_id: ownerId,
     name: t.name,
     is_enabled: t.isEnabled ?? true,
     description: t.description,
@@ -61,54 +60,57 @@ function templateToRow(t: StoredTemplate, ownerId: string) {
   };
 }
 
-export async function fetchCampaigns(ownerId: string): Promise<StoredTemplate[]> {
-  const { data, error } = await supabase
-    .from('campaigns')
-    .select('*')
-    .eq('owner_id', ownerId)
-    .order('created_at', { ascending: true });
-  if (error || !data) return [];
-  return data.map((row: CampaignRow) => rowToStoredTemplate(row));
+export async function fetchCampaigns(_ownerId: string): Promise<StoredTemplate[]> {
+  try {
+    const { data } = await api.get<{ data: CampaignRow[] }>('/campaigns');
+    return (data ?? []).map(rowToStoredTemplate);
+  } catch {
+    return [];
+  }
 }
 
-export async function upsertCampaign(template: StoredTemplate, ownerId: string): Promise<{ ok: boolean; error?: string }> {
-  const row = templateToRow(template, ownerId);
-  const { error } = await supabase
-    .from('campaigns')
-    .upsert(row, { onConflict: 'id' });
-  if (error) return { ok: false, error: 'Unable to save this campaign right now. Please try again.' };
-  return { ok: true };
+export async function upsertCampaign(template: StoredTemplate, _ownerId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await api.post('/campaigns', templateToRow(template));
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof ApiError ? err.message : 'Unable to save this campaign right now. Please try again.';
+    return { ok: false, error: message };
+  }
 }
 
 export async function setCampaignEnabled(
   campaignId: string,
-  ownerId: string,
+  _ownerId: string,
   isEnabled: boolean
 ): Promise<{ ok: boolean; error?: string }> {
-  const { error } = await supabase
-    .from('campaigns')
-    .update({ is_enabled: isEnabled })
-    .eq('id', campaignId)
-    .eq('owner_id', ownerId);
-  if (error) return { ok: false, error: 'Unable to update this campaign status right now. Please try again.' };
-  return { ok: true };
+  try {
+    await api.patch(`/campaigns/${encodeURIComponent(campaignId)}/enabled`, { is_enabled: isEnabled });
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof ApiError ? err.message : 'Unable to update this campaign status right now. Please try again.';
+    return { ok: false, error: message };
+  }
 }
 
 export async function deleteCampaign(campaignId: string): Promise<{ ok: boolean; error?: string }> {
-  const { data, error } = await supabase
-    .rpc('delete_campaign_preserve_cards', { campaign_id_input: campaignId });
-  if (error) return { ok: false, error: 'Unable to delete this campaign right now. Please try again.' };
-  if (typeof data === 'object' && data && 'success' in data && (data as { success?: boolean }).success === false) {
-    return { ok: false, error: 'Unable to delete this campaign right now. Please try again.' };
+  try {
+    const result = await api.delete<{ data?: { success?: boolean } }>(`/campaigns/${encodeURIComponent(campaignId)}`);
+    if (result.data && result.data.success === false) {
+      return { ok: false, error: 'Unable to delete this campaign right now. Please try again.' };
+    }
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof ApiError ? err.message : 'Unable to delete this campaign right now. Please try again.';
+    return { ok: false, error: message };
   }
-  return { ok: true };
 }
 
-export async function countCampaigns(ownerId: string): Promise<number> {
-  const { count, error } = await supabase
-    .from('campaigns')
-    .select('*', { count: 'exact', head: true })
-    .eq('owner_id', ownerId);
-  if (error) return 0;
-  return count ?? 0;
+export async function countCampaigns(_ownerId: string): Promise<number> {
+  try {
+    const { count } = await api.get<{ count: number }>('/campaigns/count');
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
 }

@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { api, ApiError } from '../api';
 
 interface ActivationResult {
   success: boolean;
@@ -7,9 +7,10 @@ interface ActivationResult {
 }
 
 export async function activateLicenseKey(key: string): Promise<ActivationResult> {
-  const { data, error } = await supabase
-    .rpc('activate_license_key', { key_input: key });
-  if (error) return { success: false, error: 'Unable to activate this key right now. Please try again.' };
-  if (!data) return { success: false, error: 'Unable to activate this key right now. Please try again.' };
-  return data as ActivationResult;
+  try {
+    return await api.post<ActivationResult>('/license-keys/activate', { key });
+  } catch (err) {
+    const error = err instanceof ApiError ? err.message : 'Unable to activate this key right now. Please try again.';
+    return { success: false, error };
+  }
 }

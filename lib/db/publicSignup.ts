@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { api } from '../api';
 
 export interface PublicCampaignSignupContext {
   owner: {
@@ -23,35 +23,27 @@ export async function fetchPublicCampaignSignupContext(
   slug: string,
   campaignId: string
 ): Promise<PublicCampaignSignupContext | null> {
-  const { data, error } = await supabase.rpc('get_public_campaign_signup_context', {
-    slug_input: slug,
-    campaign_id_input: campaignId,
-  });
-  if (error || !data || typeof data !== 'object') {
+  try {
+    const { data } = await api.post<{ data: PublicCampaignSignupContext | null }>('/public/context', {
+      slug,
+      campaign_id: campaignId,
+    });
+    if (!data?.owner?.id || !data.owner.slug || !data.campaign?.id || !data.campaign.name) return null;
+    return {
+      owner: {
+        id: data.owner.id,
+        slug: data.owner.slug,
+        businessName: data.owner.businessName ?? '',
+      },
+      campaign: {
+        id: data.campaign.id,
+        name: data.campaign.name,
+        isEnabled: data.campaign.isEnabled !== false,
+      },
+    };
+  } catch {
     return null;
   }
-
-  const payload = data as {
-    owner?: { id?: string; slug?: string; businessName?: string };
-    campaign?: { id?: string; name?: string; isEnabled?: boolean };
-  };
-
-  if (!payload.owner?.id || !payload.owner.slug || !payload.campaign?.id || !payload.campaign.name) {
-    return null;
-  }
-
-  return {
-    owner: {
-      id: payload.owner.id,
-      slug: payload.owner.slug,
-      businessName: payload.owner.businessName ?? '',
-    },
-    campaign: {
-      id: payload.campaign.id,
-      name: payload.campaign.name,
-      isEnabled: payload.campaign.isEnabled !== false,
-    },
-  };
 }
 
 export async function registerPublicCampaignSignup(input: {
@@ -61,31 +53,55 @@ export async function registerPublicCampaignSignup(input: {
   email?: string;
   mobile?: string;
 }): Promise<PublicCampaignSignupOutcome> {
-  const { data, error } = await supabase.rpc('register_public_campaign_signup', {
-    slug_input: input.slug,
-    campaign_id_input: input.campaignId,
-    customer_name_input: input.name,
-    customer_email_input: input.email ?? '',
-    customer_mobile_input: input.mobile ?? '',
-  });
-
-  if (error || !data || typeof data !== 'object') {
+  try {
+    const { data } = await api.post<{ data: PublicCampaignSignupOutcome }>('/public/register', {
+      slug: input.slug,
+      campaign_id: input.campaignId,
+      name: input.name,
+      email: input.email ?? '',
+      mobile: input.mobile ?? '',
+    });
+    if (!data || typeof data !== 'object') {
+      return { outcome: 'error', error: 'Unable to complete signup right now. Please try again.' };
+    }
+    return data;
+  } catch {
     return { outcome: 'error', error: 'Unable to complete signup right now. Please try again.' };
   }
+}
 
-  const payload = data as { outcome?: string; uniqueId?: string; error?: string };
-  if ((payload.outcome === 'issued' || payload.outcome === 'redirect_existing') && payload.uniqueId) {
-    return {
-      outcome: payload.outcome,
-      uniqueId: payload.uniqueId,
-    };
-  }
-  if (payload.outcome === 'campaign_disabled_no_existing') {
-    return { outcome: 'campaign_disabled_no_existing' };
-  }
-  if (payload.error) {
-    return { outcome: 'error', error: payload.error };
-  }
+export interface PublicCardPayload {
+  card: {
+    id: string;
+    uniqueId: string;
+    campaignId: string | null;
+    campaignName: string;
+    stamps: number;
+    lastVisit: string;
+    status: 'Active' | 'Redeemed';
+    completedDate?: string;
+    templateSnapshot?: Record<string, unknown> | null;
+    history: Array<{
+      id: string;
+      type: string;
+      amount: number;
+      date: string;
+      timestamp: number;
+      title: string;
+    }>;
+  };
+  customer: { id: string; name: string };
+  campaign?: Record<string, unknown> | null;
+}
 
-  return { outcome: 'error', error: 'Unable to complete signup right now. Please try again.' };
+export async function fetchPublicCard(slug: string, cardUniqueId: string): Promise<PublicCardPayload | null> {
+  try {
+    const { data } = await api.post<{ data: PublicCardPayload | null }>('/public/public-card', {
+      slug,
+      card_unique_id: cardUniqueId,
+    });
+    return data ?? null;
+  } catch {
+    return null;
+  }
 }

@@ -4,7 +4,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Button } from './ui/button';
 import { fetchPublicCampaignSignupContext, registerPublicCampaignSignup } from '../lib/db/publicSignup';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { isApiConfigured } from '../lib/api';
 
 const SERVICE_UNAVAILABLE_MESSAGE = 'Service is temporarily unavailable. Please try again later.';
 
@@ -22,7 +22,7 @@ export const PublicCampaignSignupPage: React.FC = () => {
   const [mobile, setMobile] = useState('');
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !slug || !campaignId) {
+    if (!isApiConfigured || !slug || !campaignId) {
       setLoading(false);
       return;
     }
@@ -95,7 +95,7 @@ export const PublicCampaignSignupPage: React.FC = () => {
     );
   }
 
-  if (!isSupabaseConfigured) {
+  if (!isApiConfigured) {
     return (
       <div className="h-screen flex items-center justify-center px-6 text-center text-muted-foreground">
         {SERVICE_UNAVAILABLE_MESSAGE}
