@@ -1,7 +1,12 @@
 import { Hono } from 'hono';
-import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { bucketName, publicUrlFor, s3, s3Configured } from '../lib/s3.js';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { bucketName, s3, s3Configured } from '../lib/s3.js';
 import { requireAuth, effectiveOwnerId } from '../auth/middleware.js';
+
+function apiPublicUrlFor(path: string): string {
+  const base = (process.env.PUBLIC_API_URL ?? '').replace(/\/+$/, '');
+  return `${base}/storage/campaign-assets/${path}`;
+}
 
 const router = new Hono();
 
@@ -51,12 +56,37 @@ router.post('/campaign-assets', requireAuth, async (c) => {
     Key: path,
     Body: new Uint8Array(arrayBuffer),
     ContentType: file.type || undefined,
-    ACL: 'public-read',
   }));
 
-  const publicUrl = publicUrlFor(path);
-  if (!publicUrl) return c.json({ error: 'Image uploaded, but public URL could not be resolved.' }, 500);
-  return c.json({ publicUrl, path });
+  return c.json({ publicUrl: apiPublicUrlFor(path), path });
+});
+
+// Public proxy: stream campaign assets through the API so the private Railway
+// bucket can serve images to anonymous browsers (loyalty cards, public signup).
+router.get('/campaign-assets/:owner/:kind/:filename', async (c) => {
+  if (!s3 || !s3Configured) return c.json({ error: 'storage not configured' }, 503);
+  const owner = c.req.param('owner');
+  const kind = c.req.param('kind');
+  const filename = c.req.param('filename');
+  if (kind !== 'logo' && kind !== 'background') return c.json({ error: 'bad path' }, 400);
+  if (filename.includes('..') || filename.includes('/')) return c.json({ error: 'bad path' }, 400);
+  const key = `${owner}/${kind}/${filename}`;
+  try {
+    const obj = await s3.send(new GetObjectCommand({ Bucket: bucketName, Key: key }));
+    const body = obj.Body as ReadableStream<Uint8Array> | undefined;
+    if (!body) return c.json({ error: 'empty' }, 404);
+    return new Response(body, {
+      status: 200,
+      headers: {
+        'content-type': obj.ContentType ?? 'application/octet-stream',
+        'cache-control': 'public, max-age=31536000, immutable',
+      },
+    });
+  } catch (err) {
+    if ((err as { name?: string }).name === 'NoSuchKey') return c.json({ error: 'not found' }, 404);
+    console.error('[storage/get] failed', err);
+    return c.json({ error: 'storage error' }, 500);
+  }
 });
 
 router.post('/campaign-assets/delete', requireAuth, async (c) => {

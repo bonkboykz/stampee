@@ -60,15 +60,15 @@ const validateUploadFile = (kind: CampaignAssetKind, file: File) => {
   if (!extensionAllowed && !mimeAllowed) throw new Error(rules.typeError);
 };
 
-// Only manage URLs that look like our own bucket. Anything else (legacy
-// Supabase URLs, external CDN) is left untouched.
+// Only manage URLs that come from our API proxy. Anything else is left untouched.
 const getManagedCampaignAssetPath = (url: string): string | null => {
-  const base = import.meta.env.VITE_BUCKET_PUBLIC_BASE_URL?.trim().replace(/\/+$/, '');
-  if (!base) return null;
+  const apiBase = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, '');
+  if (!apiBase) return null;
+  const prefix = `${apiBase}/storage/campaign-assets/`;
+  if (!url.startsWith(prefix)) return null;
+  const path = url.slice(prefix.length);
+  if (!path || path.includes('..')) return null;
   try {
-    if (!url.startsWith(base + '/')) return null;
-    const path = url.slice(base.length + 1);
-    if (!path || path.includes('..')) return null;
     return decodeURIComponent(path);
   } catch {
     return null;
